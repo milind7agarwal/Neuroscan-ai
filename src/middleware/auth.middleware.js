@@ -7,10 +7,11 @@ function verifyToken(req, res, next) {
         
         if (!token) {
             return res.status(401).json({ message: "No token provided" });
-        }
+        } 
 
         // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        console.log("Decoded token:", decoded); // Debugging line
         req.userId = decoded.id; // Attach user ID to request
         next();
     } catch (error) {

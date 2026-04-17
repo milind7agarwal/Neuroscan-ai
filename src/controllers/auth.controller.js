@@ -40,7 +40,7 @@ async function register(req, res) {
 }
 
 async function login(req, res) {
-    const { email, password } = req.body;
+    const { email, password } = req.body; //need to send data in the JSON format
 
     try {
         // Check if user exists
