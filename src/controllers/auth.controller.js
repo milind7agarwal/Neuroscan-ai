@@ -51,34 +51,25 @@ async function login(req, res) {
             return res.status(401).json({ message: "Invalid email or password" });
         }
 
+        const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
+
+        const refreshToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+        res.cookie("refreshToken", refreshToken, {
+            httpOnly: true,
+            secure: true,
+            sameSite: "strict",
+            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+        })
+
         res.status(200).json({ 
             message: "Login successful",
-            token,
-            user: { id: user._id, username: user.username, email: user.email }
+            user: { id: user._id, username: user.username, email: user.email },
+            token: accessToken
         });
     } catch (error) {
         res.status(500).json({ message: "Server error", error: error.message });
     }
 }
 
-async function verifyToken(req, res) {
-    try {
-        const token = req.headers.authorization?.split(' ')[1]; //<bearer token>
-
-        if (!token) {
-            return res.status(401).json({ message: "No token provided" });
-        }
-
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.id);
-
-        res.status(200).json({ 
-            message: "User details fetched successfully",
-            user: { id: user._id, username: user.username, email: user.email }
-        });
-    } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message });
-    }
-}
-
-module.exports = { register, login, verifyToken };
+module.exports = { register, login };
