@@ -1,7 +1,6 @@
 const User = require('../models/user.model.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const config = require('../config/config.js');
 
 
 async function register(req, res) {
@@ -57,10 +56,10 @@ async function login(req, res) {
 
         res.cookie("refreshToken", refreshToken, {
             httpOnly: true,
-            secure: true,
+            secure: process.env.NODE_ENV === 'production',
             sameSite: "strict",
             maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-        })
+        });
 
         res.status(200).json({ 
             message: "Login successful",
@@ -72,4 +71,28 @@ async function login(req, res) {
     }
 }
 
-module.exports = { register, login };
+async function refreshToken(req, res) {
+    const refreshToken = req.cookies.refreshToken;
+
+    if (!refreshToken) {
+        return res.status(401).json({ message: "No refresh token provided" });
+    }
+    
+    try {
+        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+
+        // const salt = await bcrypt.genSalt(10);
+        // const hassedRefreshToken = await bcrypt.hash(refreshToken, salt);
+
+        const accessToken = jwt.sign({id: decoded.id}, process.env.JWT_SECRET,{ expiresIn: "15m" });
+        res.status(200).json({
+            message: "Token refreshed successfully",
+            token: accessToken
+        });
+    } catch (error) {
+        res.status(401).json({ message: "Invalid refresh token" });
+    }
+}
+
+
+module.exports = { register, login, refreshToken };
