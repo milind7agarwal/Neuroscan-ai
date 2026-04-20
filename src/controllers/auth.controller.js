@@ -130,7 +130,6 @@ async function refreshToken(req, res) {
     }
 }
 
-
 async function logout(req, res) {
     const refreshToken = req.cookies.refreshToken;
 
