@@ -4,6 +4,15 @@ const app = require('./src/app.js');
 const connectDB = require('./src/config/database');
 
 connectDB();
-app.listen(3000, () =>{
-    console.log("server is listening to port 3000");
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () =>{
+    console.log(`server is listening to port ${PORT}`);
 });
+
+// const PORT = process.env.PORT || 3000;
+
+// app.listen(PORT, () =>{
+//     console.log(`server is listening to port ${PORT}`);
+// });
+
