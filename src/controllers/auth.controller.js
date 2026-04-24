@@ -3,6 +3,13 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const sessionModel = require('../models/session.model.js');
 
+const refreshCookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: "strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+};
+
 
 async function register(req, res) {
     const { username, email, password } = req.body;
@@ -41,7 +48,7 @@ async function login(req, res) {
     try {
         // Check if user exists
         const user = await User.findOne({ email });
-        if (!user) {
+        if (!user || !password) {
             return res.status(401).json({ message: "Invalid email or password" });
         }
 
@@ -67,12 +74,7 @@ async function login(req, res) {
         const accessToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
 
 
-        res.cookie("refreshToken", refreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: "strict",
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-        });
+        res.cookie("refreshToken", refreshToken, refreshCookieOptions);
 
         res.status(200).json({ 
             message: "Login successful",
@@ -84,6 +86,19 @@ async function login(req, res) {
     }
 }
 
+async function findMatchingSession(userId, rawRefreshToken) {
+    const sessions = await sessionModel
+      .find({ user: userId, revoked: false })
+      .sort({ createdAt: -1 });
+  
+    for (const session of sessions) {
+      const isMatch = await bcrypt.compare(rawRefreshToken, session.refreshTokenHash);
+      if (isMatch) return session;
+    }
+  
+    return null;
+  }
+
 async function refreshToken(req, res) {
     const refreshToken = req.cookies.refreshToken;
 
@@ -94,32 +109,20 @@ async function refreshToken(req, res) {
     try {
         const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
 
-        const salt = await bcrypt.genSalt(10);
-        const hashedRefreshToken = await bcrypt.hash(refreshToken, salt);
-
-        const session = await sessionModel.findOne(
-            { refreshTokenHash: hashedRefreshToken, revoked: false }
-        );
-        
+        const session = await findMatchingSession(decoded.id, refreshToken);
         if (!session) {
             return res.status(401).json({ message: "Invalid refresh token" });
-        }
-
+          }
+        
         const accessToken = jwt.sign({id: decoded.id}, process.env.JWT_SECRET,{ expiresIn: "15m" });
 
         const newRefreshToken = jwt.sign({id: decoded.id}, process.env.JWT_SECRET,{ expiresIn: "7d" });
 
-        const refreshTokenHash = await bcrypt.hash(newRefreshToken, salt);
-
-        session.refreshTokenHash = refreshTokenHash;
+        const salt = await bcrypt.genSalt(10);
+        session.refreshTokenHash = await bcrypt.hash(newRefreshToken, salt);
         await session.save();
 
-        res.cookie("refreshToken", newRefreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: "strict",
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-        });
+        res.cookie("refreshToken", newRefreshToken, refreshCookieOptions);
           
         res.status(200).json({
             message: "Token refreshed successfully",
@@ -138,25 +141,24 @@ async function logout(req, res) {
     }
 
     try {
+        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
 
-        const salt = await bcrypt.genSalt(10);
-        const refreshTokenHash = await bcrypt.hash(refreshToken, salt);
-
-        const session = await sessionModel.findOne(
-            { refreshTokenHash: refreshTokenHash, revoked: false }
-        );
-
+        const session = await findMatchingSession(decoded.id, refreshToken);
         if (!session) {
-            return res.status(400).json({ message: "Invalid refresh token" });
+          return res.status(400).json({ message: "Invalid refresh token" });
         }
 
         session.revoked = true;
         await session.save();
 
-        res.clearCookie("refreshToken");
+        res.clearCookie("refreshToken", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: "strict"
+        });
         res.status(200).json({ message: "Logout successful" });
     } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message });
+        res.status(401).json({ message: "Invalid refresh token or session" });
     }
 }
 
@@ -175,7 +177,11 @@ async function logoutAll(req, res) {
             { $set: { revoked: true } }
         );
 
-        res.clearCookie("refreshToken");
+        res.clearCookie("refreshToken", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: "strict"
+        });
         res.status(200).json({ message: "Logged out from all sessions successfully" });
     } catch (error) {
         res.status(500).json({ message: "Server error", error: error.message });
